@@ -1,17 +1,20 @@
 package cmd
 
 import (
+	_ "embed"
 	"fmt"
-	"log"
 	"os"
+	"path/filepath"
 
-	"github.com/dimus/backme"
-	homedir "github.com/mitchellh/go-homedir"
+	backme "github.com/dimus/backme/pkg"
+	"github.com/gnames/gnsys"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var cfgFile, buildDate, buildVersion string
+//go:embed backme.yaml
+var configYAML string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -37,17 +40,14 @@ var rootCmd = &cobra.Command{
 		conf := getConfig()
 		err := backme.Organize(conf)
 		if err != nil {
-			log.Println(err)
-			os.Exit(1)
+			log.Fatal().Err(err).Msg("")
 		}
 	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute(v string, d string) {
-	buildVersion = v
-	buildDate = d
+func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -60,8 +60,7 @@ func init() {
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.backme.yaml)")
-	rootCmd.PersistentFlags().BoolP("version", "v", false, "Show build version and date")
+	rootCmd.PersistentFlags().BoolP("version", "V", false, "Show build version and date")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
@@ -70,40 +69,41 @@ func init() {
 
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
-	if cfgFile != "" {
-		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
-	} else {
-		// Find home directory.
-		home, err := homedir.Dir()
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
+	var configDir string
+	var err error
+	configFile := "backme"
 
-		// Search config in home directory with name ".backme" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigName(".backme")
+	// Find config directory.
+	configDir = "/etc"
+
+	// Search config in home directory with name ".gnmatcher" (without extension).
+	viper.AddConfigPath(configDir)
+	viper.SetConfigName(configFile)
+
+	configPath := filepath.Join(configDir, fmt.Sprintf("%s.yaml", configFile))
+
+	exists, _ := gnsys.FileExists(configPath)
+	if os.Getuid() != 0 && !exists {
+		log.Warn().Msgf("Run at least once as a superuser to generate config file at '%s'", configPath)
+		return
 	}
-
-	viper.AutomaticEnv() // read in environment variables that match
+	_ = touchConfigFile(configPath)
 
 	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
-	} else {
-		log.Println(err)
+	err = viper.ReadInConfig()
+	if err != nil {
+		log.Warn().Msgf("Cannot use config file: %s", viper.ConfigFileUsed())
 	}
 }
 
 func versionFlag(cmd *cobra.Command) {
 	version, err := cmd.Flags().GetBool("version")
 	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+		log.Fatal().Err(err).Msg("")
 	}
 	if version {
-		fmt.Printf("\nversion: %s\n\ndate:    %s\n\n", buildVersion, buildDate)
+		fmt.Printf("\nVersion: %s\n\nBuild:    %s\n\n",
+			backme.Version, backme.Build)
 		os.Exit(0)
 	}
 }
@@ -112,24 +112,48 @@ func getConfig() *backme.Config {
 	conf := backme.NewConfig()
 	err := viper.Unmarshal(conf)
 	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+		log.Fatal().Err(err).Msg("")
 	}
 
 	err = backme.CheckConfig(conf)
 	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+		log.Fatal().Err(err).Msg("")
 	}
 
-	log.Println("The following backup directories are in config:")
+	log.Info().Msg("The following backup directories are in config:")
 	for i, v := range conf.InputDirs {
-		log.Printf("Backup dir %d: %s", i, v.Path)
+		log.Info().Msgf("Backup dir %d: %s", i, v.Path)
 		if _, err := os.Stat(v.Path); os.IsNotExist(err) {
-			log.Printf("Directory %s does not exist, exiting...", v.Path)
-			os.Exit(1)
+			log.Fatal().Err(err).Msgf("Directory %s does not exist, exiting...", v.Path)
 		}
 	}
-	log.Println(backme.LogSep)
+	log.Info().Msg(backme.LogSep)
 	return conf
+}
+
+// touchConfigFile checks if config file exists, and if not, it gets created.
+func touchConfigFile(configPath string) error {
+	exists, _ := gnsys.FileExists(configPath)
+	if exists {
+		return nil
+	}
+
+	log.Info().Msgf("Creating config file: %s.", configPath)
+	return createConfig(configPath)
+}
+
+// createConfig creates config file.
+func createConfig(path string) error {
+	err := gnsys.MakeDir(filepath.Dir(path))
+	if err != nil {
+		log.Warn().Err(err).Msgf("Cannot create dir %s.", path)
+		return err
+	}
+
+	err = os.WriteFile(path, []byte(configYAML), 0644)
+	if err != nil {
+		log.Warn().Err(err).Msgf("Cannot write to file %s", path)
+		return err
+	}
+	return nil
 }

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [v0.3.2] 2023-03-16 Thu
+
+- Add: refactor code to be more standard.
+
+## [v0.3.1]
+
+- Add: upgrade modules.
+
 ## [v0.3.0]
 
 - Add [#7]: Sort files first by date in the file name (if present), then

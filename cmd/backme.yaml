@@ -1,0 +1,22 @@
+---
+# Configuration file for backme app. It allows saving versions of a backup
+# where all newest files are preserved, and the older files are, less of
+# them is kept.
+#
+# outputDir sets the name of a directory where files are organized. Default
+# is `archive`
+#
+# inputDirs defines paths for archive organization. Files matching provided
+# regular expressions are moved to archive.
+
+
+# outputDir: archive
+# inputDirs:
+#   - path: /some/dir/to/backup1
+#     fileRegexPatterns:
+#       - "^backup"
+#       - "^local"
+#   - path: /another/dir/to/backup2
+#     keepAllFiles: true
+#     fileRegexPatterns:
+#       - "\\.dump$"
